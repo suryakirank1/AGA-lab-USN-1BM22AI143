@@ -1,0 +1,85 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neural_network import BernoulliRBM
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler
+from sklearn import metrics
+
+# Load MNIST dataset
+print("Loading MNIST dataset...")
+X, y = fetch_openml('mnist_784', version=1, return_X_y=True, as_frame=False)
+X = X.astype('float32')
+
+# Normalize and binarize the data (since RBM works with binary inputs)
+X = MinMaxScaler().fit_transform(X)  # Scale to [0, 1]
+X = (X > 0.5).astype('float32')  # Binarize
+
+# Split into training and test sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Create RBM model
+rbm = BernoulliRBM(
+    n_components=256,  # Number of hidden units
+    learning_rate=0.01,
+    batch_size=32,
+    n_iter=20,  # Number of epochs
+    verbose=True,
+    random_state=42
+)
+
+# Train the RBM
+print("Training RBM...")
+rbm.fit(X_train)
+
+# Transform data to hidden representation
+print("Transforming data to hidden representation...")
+X_train_transformed = rbm.transform(X_train)
+X_test_transformed = rbm.transform(X_test)
+
+# Function to reconstruct visible layer from hidden representation
+def reconstruct_visible(rbm, hidden):
+    visible_activations = np.dot(hidden, rbm.components_) + rbm.intercept_visible_
+    visible_probs = 1 / (1 + np.exp(-visible_activations))  # Sigmoid activation
+    return (visible_probs > 0.5).astype('float32')  # Binarize output
+
+# Reconstruct some test samples
+print("Reconstructing samples...")
+reconstructed_X = reconstruct_visible(rbm, X_test_transformed)
+
+# Visualize original and reconstructed images
+def plot_images(original, reconstructed, n=5):
+    plt.figure(figsize=(10, 4))
+    for i in range(n):
+        # Original
+        ax = plt.subplot(2, n, i+1)
+        plt.imshow(original[i].reshape(28, 28), cmap='gray')
+        plt.axis('off')
+
+        # Reconstructed
+        ax = plt.subplot(2, n, i+1+n)
+        plt.imshow(reconstructed[i].reshape(28, 28), cmap='gray')
+        plt.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+# Plot some examples
+print("Original vs Reconstructed images:")
+plot_images(X_test[:5], reconstructed_X[:5])
+
+# Calculate reconstruction error
+reconstruction_error = np.mean((X_test - reconstructed_X) ** 2)
+print(f"\nReconstruction error: {reconstruction_error:.4f}")
+
+# Optional: Use RBM features for classification
+from sklearn.linear_model import LogisticRegression
+
+print("\nTraining classifier on RBM features...")
+clf = LogisticRegression(max_iter=1000, random_state=42)
+clf.fit(X_train_transformed, y_train)
+
+# Evaluate classifier
+y_pred = clf.predict(X_test_transformed)
+accuracy = metrics.accuracy_score(y_test, y_pred)
+print(f"Classification accuracy: {accuracy:.4f}")
